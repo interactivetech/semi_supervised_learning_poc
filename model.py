@@ -170,5 +170,6 @@ def wrn_28_8(pretrained=False, pretrained_path=None, **kwargs):
     return model
 
 
+
 if __name__ == '__main__':
     model = wrn_28_2(pretrained=True, num_classes=10)
