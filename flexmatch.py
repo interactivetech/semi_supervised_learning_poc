@@ -3,7 +3,8 @@ from copy import deepcopy
 from collections import Counter
 
 from loss import ce_loss, consistency_loss, smooth_targets
-
+from ema import EMA,EMADriver, set_ema_model
+from tqdm import tqdm
 
 class PseudoLabelingHook:
     def __init__(self):
@@ -124,11 +125,18 @@ class FlexMatch:
 
         """
     def __init__(self, 
-             T, 
-             p_cutoff, 
-             ulb_dest_len,
-             num_classes,
-             model,
+             T=None, 
+             p_cutoff=None, 
+             ulb_dest_len=None,
+             num_classes=None,
+             model=None,
+             ema_model=None,
+             loss_ce=None,
+             scheduler=None,
+             optimizer=None,
+             device=None,
+             train_lb_loader=None,
+             train_ulb_loader=None,
              ulb_loss_ratio=1.0,
              hard_label=True, 
              thresh_warmup=True):
@@ -141,16 +149,33 @@ class FlexMatch:
         self.num_classes = num_classes
         self.thresh_warmup = thresh_warmup
         self.model=model
+        self.ema_model = ema_model
+        self.loss_ce = loss_ce
+        self.scheduler = scheduler
+        self.optimizer = optimizer
         self.use_cat = True
+        self.train_lb_loader = train_lb_loader
+        self.train_ulb_loader = train_ulb_loader
         self.threshold = FlexMatchThresholdingHook(ulb_dest_len=self.ulb_dest_len, 
                                                    num_classes=self.num_classes, 
                                                    T=self.T,
                                                    p_cutoff=self.p_cutoff,
                                                    thresh_warmup=self.thresh_warmup)
         self.pseudolabel = PseudoLabelingHook()
-
+        self.device = device
+        self.init_ema()
         # super().set_hooks()
-
+        
+        
+    def init_ema(self):
+        '''
+        '''
+        self.model.to(self.device)
+        self.ema_model.to(self.device)
+        self.ema_model = set_ema_model(self.ema_model, self.model)
+        self.emaA = EMADriver(model=self.model,ema_model=self.ema_model,ema_m=0.999)
+        self.emaA.before_run()
+        
     def train_step(self, x_lb, y_lb, idx_ulb, x_ulb_w, x_ulb_s):
         num_lb = y_lb.shape[0]
 
@@ -169,6 +194,8 @@ class FlexMatch:
         #         with torch.no_grad():
         #             outs_x_ulb_w = self.model(x_ulb_w)
         #             logits_x_ulb_w = outs_x_ulb_w['logits']
+        self.optimizer.zero_grad()
+
         if self.use_cat:
             inputs = torch.cat((x_lb, x_ulb_w, x_ulb_s))
             outputs = self.model(inputs)
@@ -199,6 +226,10 @@ class FlexMatch:
                                       mask=mask)
 
         total_loss = sup_loss + self.lambda_u * unsup_loss
+        
+        total_loss.backward()
+        self.optimizer.step()
+        self.scheduler.step()
 
         # parameter updates
         # self.call_hook("param_update", "ParamUpdateHook", loss=total_loss)
@@ -209,7 +240,39 @@ class FlexMatch:
         tb_dict['train/total_loss'] = total_loss.item()
         tb_dict['train/mask_ratio'] = mask.float().mean().item()
         return tb_dict
-
+    def fit(self,epochs = 10):
+        losses = []
+        sup_loss = []
+        unsup_loss = []
+        total_loss = []
+        mask_ratio = []
+        steps = []
+        total_steps = 0
+        for e in tqdm(range(epochs)):
+            for ind,(data_lb, data_ulb) in enumerate(zip(self.train_lb_loader, self.train_ulb_loader)):
+                # print(data_lb.keys())
+                idx_lb = data_lb['idx_lb'].to(self.device)
+                x_lb = data_lb['x_lb'].to(self.device)
+                y_lb = data_lb['y_lb'].to(self.device)
+                idx_ulb = data_ulb['idx_ulb'].to(self.device)
+                x_ulb_w = data_ulb['x_ulb_w'].to(self.device)
+                x_ulb_s = data_ulb['x_ulb_s'].to(self.device)
+                
+                loss = self.train_step( x_lb, y_lb, idx_ulb, x_ulb_w, x_ulb_s)
+                
+                if total_steps%10==0:
+                    with torch.no_grad():
+                        sup_loss.append(loss['train/sup_loss'])
+                        unsup_loss.append(loss['train/unsup_loss'])
+                        total_loss.append(loss['train/total_loss'])
+                        mask_ratio.append(loss['train/mask_ratio'])
+                        steps.append(total_steps)
+                    # print(loss.item())
+                total_steps+=1
+                self.emaA.after_train_step()
+        return steps, sup_loss,unsup_loss,total_loss, mask_ratio
+        
+        
     def get_save_dict(self):
         save_dict = super().get_save_dict()
         # additional saving arguments
