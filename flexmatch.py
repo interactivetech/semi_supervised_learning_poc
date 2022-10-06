@@ -46,27 +46,44 @@ class FlexMatchThresholdingHook:
                  thresh_warmup=True, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.ulb_dest_len = ulb_dest_len
+        # print("self.ulb_dest_len: ",self.ulb_dest_len) 
         self.num_classes = num_classes
         self.thresh_warmup = thresh_warmup
         self.T = T
         self.p_cutoff = p_cutoff
         self.thresh_warmup = thresh_warmup
         self.selected_label = torch.ones((self.ulb_dest_len,), dtype=torch.long, ) * -1
+        # print("self.selected_label: ",self.selected_label) 
+
         self.classwise_acc = torch.zeros((self.num_classes,))
 
     @torch.no_grad()
     def update(self, *args, **kwargs):
         pseudo_counter = Counter(self.selected_label.tolist())
+        '''
+        Example of pseudo_counter: Counter({-1: 141, 0: 3, 2: 3, 9: 2, 4: 1})
+        '''
+        # print("pseudo_counter: ",pseudo_counter)
         if max(pseudo_counter.values()) < self.ulb_dest_len:  # not all(5w) -1
             if self.thresh_warmup:
                 for i in range(self.num_classes):
                     self.classwise_acc[i] = pseudo_counter[i] / max(pseudo_counter.values())
+                    # print("pseudo_counter[i] / max(pseudo_counter.values()): ", 
+                    #       pseudo_counter[i],
+                    #       max(pseudo_counter.values()),
+                    #       pseudo_counter[i] / max(pseudo_counter.values()))
+                    # print("t-i, self.classwise_acc: ",i,self.classwise_acc)
             else:
                 wo_negative_one = deepcopy(pseudo_counter)
                 if -1 in wo_negative_one.keys():
                     wo_negative_one.pop(-1)
                 for i in range(self.num_classes):
                     self.classwise_acc[i] = pseudo_counter[i] / max(wo_negative_one.values())
+                    # print("t-i, self.classwise_acc: ",i,self.classwise_acc)
+                    # print("pseudo_counter[i] / max(pseudo_counter.values()): ", 
+                    #       pseudo_counter[i],
+                    #       max(pseudo_counter.values()),
+                    #       pseudo_counter[i] / max(pseudo_counter.values()))
 
     @torch.no_grad()
     def masking(self, logits_x_ulb, idx_ulb, softmax_x_ulb=True, *args, **kwargs):
@@ -81,9 +98,12 @@ class FlexMatchThresholdingHook:
             # logits is already probs
             probs_x_ulb = logits_x_ulb.detach()
         max_probs, max_idx = torch.max(probs_x_ulb, dim=-1)
+        # print("max_probs: ", max_probs.shape, max_probs)
+        # print("max_idx: ", max_idx.shape, max_idx)
         # mask = max_probs.ge(p_cutoff * (class_acc[max_idx] + 1.) / 2).float()  # linear
         # mask = max_probs.ge(p_cutoff * (1 / (2. - class_acc[max_idx]))).float()  # low_limit
         mask = max_probs.ge(self.p_cutoff * (self.classwise_acc[max_idx] / (2. - self.classwise_acc[max_idx])))  # convex
+        # print("mask: ", mask.shape, mask)
         # mask = max_probs.ge(p_cutoff * (torch.log(class_acc[max_idx] + 1.) + 0.5)/(math.log(2) + 0.5)).float()  # concave
         select = max_probs.ge(self.p_cutoff)
         mask = mask.to(max_probs.dtype)
