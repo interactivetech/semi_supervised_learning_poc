@@ -127,7 +127,7 @@ class BasicDataset(Dataset):
             if isinstance(img, np.ndarray):
                 img = Image.fromarray(img)
             img_w = self.transform(img)
-            print("self.alg: ", self.alg)
+            # print("self.alg: ", self.alg)
 
             if not self.is_ulb:
                 return {'idx_lb': idx, 'x_lb': img_w, 'y_lb': target} 
@@ -195,7 +195,7 @@ class BasicDataset2(Dataset):
         self.num_classes = num_classes
         self.is_ulb = is_ulb
         self.onehot = onehot
-        print("1-self.alg: ", self.alg)
+        # print("1-self.alg: ", self.alg)
 
         self.transform = transform
         self.strong_transform = strong_transform
@@ -245,7 +245,7 @@ class BasicDataset2(Dataset):
             if isinstance(lb_img, np.ndarray):
                 lb_img = Image.fromarray(lb_img)
             img_w = self.transform(lb_img)
-            return {'idx_lb': idx, 
+            return {'idx_lb': idx%len(self.lb_data), 
                     'x_lb': img_w, 
                     'y_lb': lb_target,
                     'idx_ulb': idx,

@@ -277,7 +277,8 @@ class FlexMatch:
                 idx_ulb = data_ulb['idx_ulb'].to(self.device)
                 x_ulb_w = data_ulb['x_ulb_w'].to(self.device)
                 x_ulb_s = data_ulb['x_ulb_s'].to(self.device)
-                
+                # print("idx_lb: ",idx_lb)
+                # print("idx_ulb: ",idx_ulb)
                 loss = self.train_step( x_lb, y_lb, idx_ulb, x_ulb_w, x_ulb_s)
                 
                 if total_steps%10==0:
@@ -474,6 +475,8 @@ class FlexMatch2:
                 idx_ulb = data_lb_ulb['idx_ulb'].to(self.device)
                 x_ulb_w = data_lb_ulb['x_ulb_w'].to(self.device)
                 x_ulb_s = data_lb_ulb['x_ulb_s'].to(self.device)
+                # print("idx_lb: ",idx_lb)
+                # print("idx_ulb: ",idx_ulb)
                 
                 loss = self.train_step( x_lb, y_lb, idx_ulb, x_ulb_w, x_ulb_s)
                 
