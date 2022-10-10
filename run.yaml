@@ -1,0 +1,26 @@
+name: test_cifar
+entrypoint: >-
+  python -m determined.launch.torch_distributed
+  python main_det.py
+data:
+  cl_path: "models/classifier_model/finbert-sentiment"
+  cl_data_path: "data/sentiment_data"
+
+hyperparameters:
+  base_model: "bert-base-uncased"
+  max_seq_length: 48
+  train_batch_size: 16 # batch size for each gpu, not global batch size
+  learning_rate: 2e-5
+  warm_up_proportion: 0.2
+  discriminate: True
+  gradual_unfreeze: True
+  last_layer_to_freeze: 10
+
+max_restarts: 0
+resources:
+  slots_per_trial: 1
+searcher:
+   name: single
+   max_length: 10 # this will be the number of epochs in this case
+   metric: val_loss
+   smaller_is_better: True
