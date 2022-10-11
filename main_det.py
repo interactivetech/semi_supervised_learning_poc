@@ -13,7 +13,7 @@ from semilearn.datasets.cv_datasets import get_cifar
 import argparse
 from semilearn.core.utils import get_dataset, get_data_loader, get_optimizer, get_cosine_schedule_with_warmup
 import matplotlib.pyplot as plt
-from flexmatch import FlexMatch
+from flexmatch_det import FlexMatch
 
 
 def set_args(args_d):
@@ -43,9 +43,17 @@ def trainer():
     '''
     return
 
-def main(hparams):
+def main(latest_checkpoint=None,
+         trial_id=None,
+         hparams=None):
     '''
     '''
+    # NEW - need to get GPU rank to report metrics with only one GPU and avoid duplicate reports
+    try:
+        rank = torch.distributed.get_rank()
+    except:
+        rank = 0
+    print("RANK: ",rank)
     args_d = {'dataset': 'cifar10',
          'num_classes': 10,
          'train_sampler': 'RandomSampler',
@@ -96,7 +104,12 @@ def main(hparams):
                                                 num_warmup_steps=args.num_warmup_iter)
     loss_ce = torch.nn.CrossEntropyLoss()
     
-    f = FlexMatch(T=1.0, 
+    f = FlexMatch(
+             core_context,
+             rank=rank,
+             latest_checkpoint=latest_checkpoint,
+             trial_id=trial_id,
+             T=1.0, 
              p_cutoff=0.95, 
              ulb_dest_len=len(dataset_dict['train_ulb']),
              num_classes=10,
@@ -108,12 +121,14 @@ def main(hparams):
              device=device,
              train_lb_loader=train_lb_loader,
              train_ulb_loader=train_ulb_loader,
+             eval_loader=eval_loader,
              ulb_loss_ratio=1.0,
              hard_label=True, 
              thresh_warmup=True)
     
-    steps, sup_loss,unsup_loss,total_loss = f.fit()
+    steps, sup_loss,unsup_loss,total_loss, mask_ratio = f.fit()
     # trainer()
+    
 
 if __name__ == '__main__':
     # NEW - defining distributed option for det.core.init()
@@ -161,7 +176,9 @@ if __name__ == '__main__':
 
     # NEW - create a context, and pass it to the main function.
     with det.core.init(distributed=distributed) as core_context:
-        main(hparams)
+        main(latest_checkpoint=latest_checkpoint,
+             trial_id=trial_id,
+             hparams = hparams)
     DID_DET_SUCCEED = True
     # except Exception as e:
     #     if not DID_DET_SUCCEED:

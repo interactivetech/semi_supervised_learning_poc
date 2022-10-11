@@ -4,7 +4,7 @@ from sklearn.metrics import accuracy_score, balanced_accuracy_score, precision_s
 import torch.nn.functional as F
 import numpy as np
 def predict(model,ema,data_loader,device, use_ema_model=False, return_gt=False):
-        model.to(device)
+        # model.to(device)
         model.eval()
 
         if use_ema_model:
