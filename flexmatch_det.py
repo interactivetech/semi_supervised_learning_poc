@@ -6,29 +6,29 @@ from loss import ce_loss, consistency_loss, smooth_targets
 from ema import EMA,EMADriver, set_ema_model
 from tqdm import tqdm
 from eval import predict, eval
-
+import pathlib
 # NEW - given a checkpoint_directory of type pathlib.Path, save our state to a file.
 # You can save multiple files, and use any file names or directory structures.
 # All files nested under `checkpoint_directory` path will be included into the checkpoint.
-def save_state(model, val_loss, epochs_completed, total_tr_steps, trial_id, checkpoint_directory):
+def save_state(model, val_top1, epochs_completed, total_tr_steps, trial_id, checkpoint_directory):
     # Record metrics like validation loss, number of epochs completed, total number of training steps and trial ID in a "state" file
     with checkpoint_directory.joinpath("state").open("w") as f:
-        f.write(f"{val_loss},{epochs_completed},{total_tr_steps},{trial_id}")
+        f.write(f"{val_top1},{epochs_completed},{total_tr_steps},{trial_id}")
         
     # Save model itself
     model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
     torch.save(model_to_save.state_dict(), checkpoint_directory.joinpath("pytorch_model.bin"))
     
     # Save json config file, like in the original code
-    with checkpoint_directory.joinpath("config.json").open("w") as f:
-        f.write(model_to_save.config.to_json_string())
+    # with checkpoint_directory.joinpath("config.json").open("w") as f:
+    #     f.write(model_to_save.config.to_json_string())
         
 # NEW - given a checkpoint_directory, load our state from a file.
 def load_state(model, trial_id, checkpoint_directory):
     checkpoint_directory = pathlib.Path(checkpoint_directory)
     with checkpoint_directory.joinpath("state").open("r") as f:
-        val_loss, epochs_completed, total_tr_steps, ckpt_trial_id = [field for field in f.read().split(",")]
-        val_loss = float(val_loss)
+        val_top1, epochs_completed, total_tr_steps, ckpt_trial_id = [field for field in f.read().split(",")]
+        val_top1 = float(val_top1)
         epochs_completed = int(epochs_completed)
         total_tr_steps = int(total_tr_steps)
         ckpt_trial_id = int(ckpt_trial_id)
@@ -320,7 +320,22 @@ class FlexMatch:
         mask_ratio = []
         steps = []
         total_steps = 0
-        for e in tqdm(range(epochs)):
+        
+        # NEW - load a checkpoint if one was provided.
+        epochs_completed = 0
+        if self.latest_checkpoint is not None:
+            print("Checkpoint provided, will load state")
+            with self.core_context.checkpoint.restore_path(self.latest_checkpoint) as path:
+                model, epochs_completed, total_steps = load_state(self.model, self.trial_id, path)
+                self.model = model
+            print("Successfully loaded checkpoint")
+            if epochs_completed == 0:
+                print("Will start training the model as part as the new trial " + str(self.trial_id))
+            else:
+                print("Continuation of trial " + str(self.trial_id) + " from epoch " + str(epochs_completed) + " after training for " + str(total_steps) + " steps")
+            self.init_ema()
+        
+        for e in tqdm(range(epochs_completed,epochs)):
             for ind,(data_lb, data_ulb) in enumerate(zip(self.train_lb_loader, self.train_ulb_loader)):
                 # print(data_lb.keys())
                 idx_lb = data_lb['idx_lb'].to(self.device)
@@ -361,6 +376,22 @@ class FlexMatch:
                                                                                     'val/recall':recall,
                                                                                     'val/F1':F1
                                                                                    })
+                    checkpoint_metadata = {"val_top1": top1, "steps_completed": total_steps, "epochs_completed": epochs_completed}
+                    with self.core_context.checkpoint.store_path(checkpoint_metadata) as (path, uuid):
+                        save_state(self.model, top1, epochs_completed, total_steps, self.trial_id, path)
+                        print("Successfully saved checkpoint")
+                        print(checkpoint_metadata)
+                        
+                        # NEW - update last_checkpoint_epoch
+                        last_checkpoint_epoch = epochs_completed
+            # NEW - check for a preemption signal.  This could originate from a
+            # higher-priority task bumping us off the cluster, or for a user pausing
+            # the experiment via the WebUI or CLI.
+            if self.core_context.preempt.should_preempt():
+                # At this point, a checkpoint ws just saved, so training can exit
+                # immediately and resume when the trial is reactivated.
+                print("Preemption signal detected, will stop the training")
+                return
         return steps, sup_loss,unsup_loss,total_loss, mask_ratio
         
         
@@ -386,206 +417,3 @@ class FlexMatch:
             SSL_Argument('--p_cutoff', float, 0.95),
             SSL_Argument('--thresh_warmup', str2bool, True),
         ]
-
-class FlexMatch2:
-    """
-        FlexMatch algorithm (https://arxiv.org/abs/2110.08263).
-
-        Args:
-            - args (`argparse`):
-                algorithm arguments
-            - net_builder (`callable`):
-                network loading function
-            - tb_log (`TBLog`):
-                tensorboard logger
-            - logger (`logging.Logger`):
-                logger to use
-            - T (`float`):
-                Temperature for pseudo-label sharpening
-            - p_cutoff(`float`):
-                Confidence threshold for generating pseudo-labels
-            - hard_label (`bool`, *optional*, default to `False`):
-                If True, targets have [Batch size] shape with int values. If False, the target is vector
-            - ulb_dest_len (`int`):
-                Length of unlabeled data
-            - thresh_warmup (`bool`, *optional*, default to `True`):
-                If True, warmup the confidence threshold, so that at the beginning of the training, all estimated
-                learning effects gradually rise from 0 until the number of unused unlabeled data is no longer
-                predominant
-
-        """
-    def __init__(self, 
-             T=None, 
-             p_cutoff=None, 
-             ulb_dest_len=None,
-             num_classes=None,
-             model=None,
-             ema_model=None,
-             loss_ce=None,
-             scheduler=None,
-             optimizer=None,
-             device=None,
-             train_lb_ulb_loader=None,
-             ulb_loss_ratio=1.0,
-             hard_label=True, 
-             thresh_warmup=True):
-        super().__init__()
-        self.T = T
-        self.p_cutoff = p_cutoff
-        self.use_hard_label = hard_label
-        self.ulb_dest_len = ulb_dest_len
-        self.lambda_u =ulb_loss_ratio
-        self.num_classes = num_classes
-        self.thresh_warmup = thresh_warmup
-        self.model=model
-        self.ema_model = ema_model
-        self.loss_ce = loss_ce
-        self.scheduler = scheduler
-        self.optimizer = optimizer
-        self.use_cat = True
-        self.train_lb_ulb_loader = train_lb_ulb_loader
-        self.threshold = FlexMatchThresholdingHook(ulb_dest_len=self.ulb_dest_len, 
-                                                   num_classes=self.num_classes, 
-                                                   T=self.T,
-                                                   p_cutoff=self.p_cutoff,
-                                                   thresh_warmup=self.thresh_warmup)
-        self.pseudolabel = PseudoLabelingHook()
-        self.device = device
-        self.init_ema()
-        # super().set_hooks()
-        
-        
-    def init_ema(self):
-        '''
-        '''
-        self.model.to(self.device)
-        self.ema_model.to(self.device)
-        self.ema_model = set_ema_model(self.ema_model, self.model)
-        self.emaA = EMADriver(model=self.model,ema_model=self.ema_model,ema_m=0.999)
-        self.emaA.before_run()
-        
-    def train_step(self, x_lb, y_lb, idx_ulb, x_ulb_w, x_ulb_s):
-        num_lb = y_lb.shape[0]
-
-        # inference and calculate sup/unsup losses
-        # with self.amp_cm():
-        #     if self.use_cat:
-        #         inputs = torch.cat((x_lb, x_ulb_w, x_ulb_s))
-        #         outputs = self.model(inputs)
-        #         logits_x_lb = outputs['logits'][:num_lb]
-        #         logits_x_ulb_w, logits_x_ulb_s = outputs['logits'][num_lb:].chunk(2)
-        #     else:
-        #         outs_x_lb = self.model(x_lb) 
-        #         logits_x_lb = outs_x_lb['logits']
-        #         outs_x_ulb_s = self.model(x_ulb_s)
-        #         logits_x_ulb_s = outs_x_ulb_s['logits']
-        #         with torch.no_grad():
-        #             outs_x_ulb_w = self.model(x_ulb_w)
-        #             logits_x_ulb_w = outs_x_ulb_w['logits']
-        self.optimizer.zero_grad()
-
-        if self.use_cat:
-            inputs = torch.cat((x_lb, x_ulb_w, x_ulb_s))
-            outputs = self.model(inputs)
-            logits_x_lb = outputs['logits'][:num_lb]
-            logits_x_ulb_w, logits_x_ulb_s = outputs['logits'][num_lb:].chunk(2)
-        else:
-            outs_x_lb = self.model(x_lb) 
-            logits_x_lb = outs_x_lb['logits']
-            outs_x_ulb_s = self.model(x_ulb_s)
-            logits_x_ulb_s = outs_x_ulb_s['logits']
-            with torch.no_grad():
-                outs_x_ulb_w = self.model(x_ulb_w)
-                logits_x_ulb_w = outs_x_ulb_w['logits']
-
-        sup_loss = ce_loss(logits_x_lb, y_lb, reduction='mean')
-
-        # compute mask
-        mask = self.threshold.masking(logits_x_ulb=logits_x_ulb_w, idx_ulb=idx_ulb)
-
-        # generate unlabeled targets using pseudo label hook
-        pseudo_label = self.pseudolabel.gen_ulb_targets(logits=logits_x_ulb_w,
-                                          use_hard_label=self.use_hard_label,
-                                          T=self.T)
-
-        unsup_loss = consistency_loss(logits_x_ulb_s,
-                                      pseudo_label,
-                                      'ce',
-                                      mask=mask)
-
-        total_loss = sup_loss + self.lambda_u * unsup_loss
-        
-        total_loss.backward()
-        self.optimizer.step()
-        self.scheduler.step()
-
-        # parameter updates
-        # self.call_hook("param_update", "ParamUpdateHook", loss=total_loss)
-
-        tb_dict = {}
-        tb_dict['train/sup_loss'] = sup_loss.item()
-        tb_dict['train/unsup_loss'] = unsup_loss.item()
-        tb_dict['train/total_loss'] = total_loss.item()
-        tb_dict['train/mask_ratio'] = mask.float().mean().item()
-        return tb_dict
-    def fit(self,epochs = 10):
-        losses = []
-        sup_loss = []
-        unsup_loss = []
-        total_loss = []
-        mask_ratio = []
-        steps = []
-        total_steps = 0
-        for e in tqdm(range(epochs)):
-            for ind,(data_lb_ulb) in enumerate(self.train_lb_ulb_loader):
-                # print(data_lb.keys())
-                idx_lb = data_lb_ulb['idx_lb'].to(self.device)
-                x_lb = data_lb_ulb['x_lb'].to(self.device)
-                y_lb = data_lb_ulb['y_lb'].to(self.device)
-                idx_ulb = data_lb_ulb['idx_ulb'].to(self.device)
-                x_ulb_w = data_lb_ulb['x_ulb_w'].to(self.device)
-                x_ulb_s = data_lb_ulb['x_ulb_s'].to(self.device)
-                # print("idx_lb: ",idx_lb)
-                # print("idx_ulb: ",idx_ulb)
-                
-                loss = self.train_step( x_lb, y_lb, idx_ulb, x_ulb_w, x_ulb_s)
-                
-                if total_steps%10==0:
-                    with torch.no_grad():
-                        sup_loss.append(loss['train/sup_loss'])
-                        unsup_loss.append(loss['train/unsup_loss'])
-                        total_loss.append(loss['train/total_loss'])
-                        mask_ratio.append(loss['train/mask_ratio'])
-                        steps.append(total_steps)
-                    # print(loss.item())
-                total_steps+=1
-                self.emaA.after_train_step()
-        return steps, sup_loss,unsup_loss,total_loss, mask_ratio
-        
-        
-    def get_save_dict(self):
-        save_dict = super().get_save_dict()
-        # additional saving arguments
-        save_dict['classwise_acc'] = self.hooks_dict['MaskingHook'].classwise_acc.cpu()
-        save_dict['selected_label'] = self.hooks_dict['MaskingHook'].selected_label.cpu()
-        return save_dict
-
-    def load_model(self, load_path):
-        checkpoint = super().load_model(load_path)
-        self.hooks_dict['MaskingHook'].classwise_acc = checkpoint['classwise_acc'].cuda(self.gpu)
-        self.hooks_dict['MaskingHook'].selected_label = checkpoint['selected_label'].cuda(self.gpu)
-        self.print_fn("additional parameter loaded")
-        return checkpoint
-
-    @staticmethod
-    def get_argument():
-        return [
-            SSL_Argument('--hard_label', str2bool, True),
-            SSL_Argument('--T', float, 0.5),
-            SSL_Argument('--p_cutoff', float, 0.95),
-            SSL_Argument('--thresh_warmup', str2bool, True),
-        ]
-
-
-
-

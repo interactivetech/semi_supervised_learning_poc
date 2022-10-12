@@ -125,8 +125,11 @@ def main(latest_checkpoint=None,
              ulb_loss_ratio=1.0,
              hard_label=True, 
              thresh_warmup=True)
-    
-    steps, sup_loss,unsup_loss,total_loss, mask_ratio = f.fit()
+    try:
+        steps, sup_loss,unsup_loss,total_loss, mask_ratio = f.fit(epochs=300)
+    except Exception as e:
+        print(e)
+        pass
     # trainer()
     
 
@@ -141,9 +144,13 @@ if __name__ == '__main__':
     if info is not None:
         latest_checkpoint = info.latest_checkpoint
         trial_id = info.trial.trial_id
+        print("info.latest_checkpoint: ",info.latest_checkpoint)
+        print("trial_id: ",trial_id)
     else:
         latest_checkpoint = None
         trial_id = -1
+        print("info.latest_checkpoint: ",info.latest_checkpoint)
+        print("trial_id: ",trial_id)
 
     hparams = info.trial.hparams
     data_conf = info.trial._config["data"]
