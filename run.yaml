@@ -15,6 +15,32 @@ hyperparameters:
   discriminate: True
   gradual_unfreeze: True
   last_layer_to_freeze: 10
+  dataset: 'cifar10'
+  num_classes: 10
+  train_sampler: 'RandomSampler'
+  num_workers: 8
+  lb_imb_ratio: 1
+  ulb_imb_ratio: 1.0
+  batch_size: 32
+  ulb_num_labels: 150
+  img_size: 32
+  crop_ratio: 0.875
+  num_labels: 30
+  seed: 1
+  epoch: 10
+  num_train_iter: 150
+  net: 'wrn_28_8'
+  optim: 'SGD'
+  lr:  0.03
+  momentum: 0.9
+  weight_decay: 0.0005
+  layer_decay: 0.75
+  num_warmup_iter: 0
+  algorithm: None
+  data_dir: './data'
+  uratio: 3
+  eval_batch_size: 64
+  
 
 max_restarts: 0
 resources:
@@ -22,5 +48,5 @@ resources:
 searcher:
    name: single
    max_length: 10 # this will be the number of epochs in this case
-   metric: val_loss
+   metric: train/total_loss
    smaller_is_better: True

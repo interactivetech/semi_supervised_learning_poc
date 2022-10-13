@@ -54,31 +54,32 @@ def main(latest_checkpoint=None,
     except:
         rank = 0
     print("RANK: ",rank)
-    args_d = {'dataset': 'cifar10',
-         'num_classes': 10,
-         'train_sampler': 'RandomSampler',
-         'num_workers': 8,
-         'lb_imb_ratio': 1,
-         'ulb_imb_ratio':1.0,
-          'batch_size': 32,
-         'ulb_num_labels': 150,
-         'img_size': 32,
-         'crop_ratio': 0.875,
-         'num_labels': 30,
-         'seed': 1,
-         'epoch': 3,
-         'num_train_iter':150,
-         'net': 'wrn_28_8',
-         'optim': 'SGD',
-         'lr': 0.03,
-         'momentum': 0.9,
-         'weight_decay': 0.0005,
-         'layer_decay': 0.75,
-          'num_warmup_iter': 0,
-         'algorithm': None,
-         'data_dir': './data',
-         'uratio': 3,
-         'eval_batch_size': 64}
+    print("HPARAMS: ",hparams)
+    args_d = {'dataset': hparams['dataset'],
+         'num_classes': hparams['num_classes'],
+         'train_sampler': hparams['train_sampler'],
+         'num_workers': hparams['num_workers'],
+         'lb_imb_ratio': hparams['lb_imb_ratio'],
+         'ulb_imb_ratio':hparams['ulb_imb_ratio'],
+          'batch_size': hparams['batch_size'],
+         'ulb_num_labels': hparams['ulb_num_labels'],
+         'img_size': hparams['img_size'],
+         'crop_ratio': hparams['crop_ratio'],
+         'num_labels': hparams['num_labels'],
+         'seed': hparams['seed'],
+         'epoch': hparams['epoch'],
+         'num_train_iter':hparams['num_train_iter'],
+         'net': hparams['net'],
+         'optim': hparams['optim'],
+         'lr':hparams['lr'],
+         'momentum':hparams['momentum'],
+         'weight_decay': hparams['weight_decay'],
+         'layer_decay': hparams['layer_decay'],
+         'num_warmup_iter': hparams['num_warmup_iter'],
+         'algorithm': hparams['algorithm'],
+         'data_dir': hparams['data_dir'],
+         'uratio': hparams['uratio'],
+         'eval_batch_size': hparams['eval_batch_size']}
     args = set_args(args_d)
     
     dataset_dict = get_dataset(args, 
@@ -112,7 +113,7 @@ def main(latest_checkpoint=None,
              T=1.0, 
              p_cutoff=0.95, 
              ulb_dest_len=len(dataset_dict['train_ulb']),
-             num_classes=10,
+             num_classes=hparams['num_classes'],
              model=m,
              ema_model=ema,
              loss_ce=loss_ce,
@@ -126,7 +127,7 @@ def main(latest_checkpoint=None,
              hard_label=True, 
              thresh_warmup=True)
     try:
-        steps, sup_loss,unsup_loss,total_loss, mask_ratio = f.fit(epochs=300)
+        steps, sup_loss,unsup_loss,total_loss, mask_ratio = f.fit(epochs=hparams['epoch'])
     except Exception as e:
         print(e)
         pass
