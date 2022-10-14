@@ -127,7 +127,8 @@ def main(latest_checkpoint=None,
              hard_label=True, 
              thresh_warmup=True)
     try:
-        steps, sup_loss,unsup_loss,total_loss, mask_ratio = f.fit(epochs=hparams['epoch'])
+        # steps, sup_loss,unsup_loss,total_loss, mask_ratio = f.fit(epochs=hparams['epoch'])
+        steps, sup_loss,unsup_loss,total_loss, mask_ratio = f.fit_hyp()
     except Exception as e:
         print(e)
         pass

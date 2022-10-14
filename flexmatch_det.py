@@ -393,6 +393,95 @@ class FlexMatch:
                 print("Preemption signal detected, will stop the training")
                 return
         return steps, sup_loss,unsup_loss,total_loss, mask_ratio
+    def fit_hyp(self,epochs = None):
+        losses = []
+        sup_loss = []
+        unsup_loss = []
+        total_loss = []
+        mask_ratio = []
+        steps = []
+        total_steps = 0
+        
+        # NEW - load a checkpoint if one was provided.
+        epochs_completed = 0
+        if self.latest_checkpoint is not None:
+            print("Checkpoint provided, will load state")
+            with self.core_context.checkpoint.restore_path(self.latest_checkpoint) as path:
+                model, epochs_completed, total_steps = load_state(self.model, self.trial_id, path)
+                self.model = model
+            print("Successfully loaded checkpoint")
+            if epochs_completed == 0:
+                print("Will start training the model as part as the new trial " + str(self.trial_id))
+            else:
+                print("Continuation of trial " + str(self.trial_id) + " from epoch " + str(epochs_completed) + " after training for " + str(total_steps) + " steps")
+            self.init_ema()
+        for op in self.core_context.searcher.operations():
+            while epochs_completed < op.length:
+                for ind,(data_lb, data_ulb) in enumerate(zip(self.train_lb_loader, self.train_ulb_loader)):
+                    # print(data_lb.keys())
+                    idx_lb = data_lb['idx_lb'].to(self.device)
+                    x_lb = data_lb['x_lb'].to(self.device)
+                    y_lb = data_lb['y_lb'].to(self.device)
+                    idx_ulb = data_ulb['idx_ulb'].to(self.device)
+                    x_ulb_w = data_ulb['x_ulb_w'].to(self.device)
+                    x_ulb_s = data_ulb['x_ulb_s'].to(self.device)
+                    # print("idx_lb: ",idx_lb)
+                    # print("idx_ulb: ",idx_ulb)
+                    loss = self.train_step( x_lb, y_lb, idx_ulb, x_ulb_w, x_ulb_s)
+
+                    if total_steps%10==0:
+                        with torch.no_grad():
+                            if self.rank == 0:
+                                sup_loss.append(loss['train/sup_loss'])
+                                unsup_loss.append(loss['train/unsup_loss'])
+                                total_loss.append(loss['train/total_loss'])
+                                mask_ratio.append(loss['train/mask_ratio'])
+                                steps.append(total_steps)
+                                self.core_context.train.report_training_metrics(steps_completed=total_steps,
+                                                                               metrics={"train/sup_loss": loss['train/sup_loss'],
+                                                                                       'train/unsup_loss':loss['train/unsup_loss'],
+                                                                                        'train/total_loss':loss['train/total_loss'],
+                                                                                        'train/mask_ratio':loss['train/mask_ratio']
+                                                                                       })
+                        # print(loss.item())
+                    total_steps+=1
+                    self.emaA.after_train_step()
+                # Eval
+
+                if self.rank == 0:
+                    with torch.no_grad():
+                        top1,balanced_top1, precision, recall, F1, cf_mat= eval(self.model,self.emaA.ema,self.eval_loader,self.device,return_gt=True,use_ema_model=False)
+                        self.core_context.train.report_validation_metrics(steps_completed=epochs_completed,
+                                                                               metrics={"val/top1": top1,
+                                                                                       'val/balanced_top1':balanced_top1,
+                                                                                        'val/precision':precision,
+                                                                                        'val/recall':recall,
+                                                                                        'val/F1':F1
+                                                                                       })
+                        checkpoint_metadata = {"val_top1": top1, "steps_completed": total_steps, "epochs_completed": epochs_completed}
+                        with self.core_context.checkpoint.store_path(checkpoint_metadata) as (path, uuid):
+                            save_state(self.model, top1, epochs_completed, total_steps, self.trial_id, path)
+                            print("Successfully saved checkpoint")
+                            print(checkpoint_metadata)
+
+                            # NEW - update last_checkpoint_epoch
+                            last_checkpoint_epoch = epochs_completed
+                # NEW - report progress once in a while, using the chief worker again
+                if self.rank == 0:
+                    op.report_progress(epochs_completed)
+                if self.rank == 0:
+                    op.report_completed(valid_loss)
+                # NEW - update variable to keep track of the number of epochs completed
+                epochs_completed += 1
+                # NEW - check for a preemption signal.  This could originate from a
+                # higher-priority task bumping us off the cluster, or for a user pausing
+                # the experiment via the WebUI or CLI.
+                if self.core_context.preempt.should_preempt():
+                    # At this point, a checkpoint ws just saved, so training can exit
+                    # immediately and resume when the trial is reactivated.
+                    print("Preemption signal detected, will stop the training")
+                    return
+        return steps, sup_loss,unsup_loss,total_loss, mask_ratio
         
         
     def get_save_dict(self):

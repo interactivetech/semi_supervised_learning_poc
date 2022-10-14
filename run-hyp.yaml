@@ -21,8 +21,17 @@ hyperparameters:
   num_workers: 8
   lb_imb_ratio: 1
   ulb_imb_ratio: 1.0
-  batch_size: 32
-  ulb_num_labels: 150
+  batch_size:
+      type: int
+      minval: 32
+      maxval: 96
+  ulb_num_labels:
+    type: categorical
+    vals:
+     - 150
+     - 300
+     - 450
+     - 600
   img_size: 32
   crop_ratio: 0.875
   num_labels: 30
@@ -31,7 +40,11 @@ hyperparameters:
   num_train_iter: 150
   net: 'wrn_28_8'
   optim: 'SGD'
-  lr:  0.03
+  lr:
+    type: log
+    minval: -5
+    maxval: -3
+    base: 10
   momentum: 0.9
   weight_decay: 0.0005
   layer_decay: 0.75
@@ -46,7 +59,9 @@ max_restarts: 0
 resources:
   slots_per_trial: 1
 searcher:
-   name: single
+   name: adaptive_asha
+   max_trials: 8
    max_length: 1 # this will be the number of epochs in this case
    metric: train/total_loss
    smaller_is_better: True
+   max_concurrent_trials: 4
