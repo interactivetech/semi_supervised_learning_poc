@@ -468,9 +468,8 @@ class FlexMatch:
                             last_checkpoint_epoch = epochs_completed
                 # NEW - report progress once in a while, using the chief worker again
                 if self.rank == 0:
-                    op.report_progress(epochs_completed)
-                if self.rank == 0:
-                    op.report_completed(valid_loss)
+                        op.report_progress(epochs_completed)
+
                 # NEW - update variable to keep track of the number of epochs completed
                 epochs_completed += 1
                 # NEW - check for a preemption signal.  This could originate from a
@@ -481,6 +480,8 @@ class FlexMatch:
                     # immediately and resume when the trial is reactivated.
                     print("Preemption signal detected, will stop the training")
                     return
+            if self.rank == 0:
+                op.report_completed(F1)
         return steps, sup_loss,unsup_loss,total_loss, mask_ratio
         
         

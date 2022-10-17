@@ -61,7 +61,7 @@ resources:
 searcher:
    name: adaptive_asha
    max_trials: 8
-   max_length: 1 # this will be the number of epochs in this case
-   metric: train/total_loss
-   smaller_is_better: True
+   max_length: 50 # this will be the number of epochs in this case
+   metric: 'val/F1'
+   smaller_is_better: False
    max_concurrent_trials: 4
