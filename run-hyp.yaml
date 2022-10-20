@@ -7,24 +7,17 @@ data:
   cl_data_path: "data/sentiment_data"
 
 hyperparameters:
-  base_model: "bert-base-uncased"
-  max_seq_length: 48
-  train_batch_size: 16 # batch size for each gpu, not global batch size
-  learning_rate: 2e-5
-  warm_up_proportion: 0.2
-  discriminate: True
-  gradual_unfreeze: True
-  last_layer_to_freeze: 10
   dataset: 'cifar10'
   num_classes: 10
   train_sampler: 'RandomSampler'
   num_workers: 8
   lb_imb_ratio: 1
   ulb_imb_ratio: 1.0
-  batch_size:
-      type: int
-      minval: 32
-      maxval: 96
+  # batch_size:
+  #     type: int
+  #     minval: 32
+  #     maxval: 96
+  batch_size: 32
   ulb_num_labels:
     type: categorical
     vals:
@@ -40,11 +33,12 @@ hyperparameters:
   num_train_iter: 150
   net: 'wrn_28_8'
   optim: 'SGD'
-  lr:
-    type: log
-    minval: -5
-    maxval: -3
-    base: 10
+  lr: 1e-4
+  # lr:
+  #   type: log
+  #   minval: -5
+  #   maxval: -3
+  #   base: 10
   momentum: 0.9
   weight_decay: 0.0005
   layer_decay: 0.75

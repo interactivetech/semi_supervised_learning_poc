@@ -483,27 +483,3 @@ class FlexMatch:
             if self.rank == 0:
                 op.report_completed(F1)
         return steps, sup_loss,unsup_loss,total_loss, mask_ratio
-        
-        
-    def get_save_dict(self):
-        save_dict = super().get_save_dict()
-        # additional saving arguments
-        save_dict['classwise_acc'] = self.hooks_dict['MaskingHook'].classwise_acc.cpu()
-        save_dict['selected_label'] = self.hooks_dict['MaskingHook'].selected_label.cpu()
-        return save_dict
-
-    def load_model(self, load_path):
-        checkpoint = super().load_model(load_path)
-        self.hooks_dict['MaskingHook'].classwise_acc = checkpoint['classwise_acc'].cuda(self.gpu)
-        self.hooks_dict['MaskingHook'].selected_label = checkpoint['selected_label'].cuda(self.gpu)
-        self.print_fn("additional parameter loaded")
-        return checkpoint
-
-    @staticmethod
-    def get_argument():
-        return [
-            SSL_Argument('--hard_label', str2bool, True),
-            SSL_Argument('--T', float, 0.5),
-            SSL_Argument('--p_cutoff', float, 0.95),
-            SSL_Argument('--thresh_warmup', str2bool, True),
-        ]
